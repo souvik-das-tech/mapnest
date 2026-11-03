@@ -1,5 +1,5 @@
 # Multi-stage: build the React app with Node, serve static files with nginx.
-FROM node:24-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 # Exact versions from the lockfile; no install scripts from dependencies.
