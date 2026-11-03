@@ -35,7 +35,9 @@ func loginToken(t *testing.T, h http.Handler) string {
 	return resp.Token
 }
 
-func bearerHdr(tok string) map[string]string { return map[string]string{"Authorization": "Bearer " + tok} }
+func bearerHdr(tok string) map[string]string {
+	return map[string]string{"Authorization": "Bearer " + tok}
+}
 
 func TestLogoutRevokesToken(t *testing.T) {
 	h := newTestServer(t, "http://127.0.0.1:1/")
