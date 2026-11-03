@@ -9,7 +9,7 @@ RUN npm run build
 
 # Unprivileged nginx: runs as user nginx (uid 101) and listens on 8080, so
 # the container needs no root and no Linux capabilities.
-FROM nginxinc/nginx-unprivileged:1.29-alpine
+FROM nginxinc/nginx-unprivileged:1.31-alpine
 # Pick up Alpine security fixes released after the base image was built
 # (Trivy fails CI on fixable HIGH/CRITICAL), then drop back to the
 # unprivileged nginx user.
