@@ -1,6 +1,6 @@
 # Multi-stage: build the Go binary, then put it on the same MapServer image
 # that serves maps, so mapserv/gdalinfo match the renderer (PLAN.md §2).
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 # Dependencies exactly as pinned in go.sum, checked against their hashes.
