@@ -23,7 +23,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: server/msapi/go.mod
+          # Newest 1.26 patch release: security fixes in the standard library.
+          go-version: "1.26"
+          check-latest: true
           cache-dependency-path: server/msapi/go.sum
       - name: Modules verified against go.sum
         run: go mod verify
