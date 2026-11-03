@@ -1,0 +1,101 @@
+# Stack 1: PRODUCT. MapServer + admin API.
+# Start: docker network create gis-net   (once per host)
+#        cp .env.example .env   (fill in every secret)
+#        docker compose up -d --build
+name: gis-server
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+
+services:
+  mapserver:
+    image: camptocamp/mapserver:8.6-gdal3.13
+    container_name: mapserver
+    restart: unless-stopped
+    ports:
+      # Public WMS/WFS for your apps. MAPSERVER_BIND=127.0.0.1 to serve maps
+      # only through the web UI's nginx (/ows), which adds rate limits.
+      - "${MAPSERVER_BIND:-0.0.0.0}:${MAPSERVER_PORT:-8080}:80"
+    environment:
+      MAPSERVER_CONFIG_FILE: /etc/mapserver.conf
+      # libpq services written by msapi. Must be process env: the ENV block
+      # of mapserver.conf does not reach libpq (checked 2026-10-14).
+      PGSERVICEFILE: /etc/mapserver/secrets/pg_service.conf
+      MAX_REQUESTS_PER_PROCESS: 1000
+      # Seconds a map request may take (image default 40). Zoomed-out maps of
+      # large rasters that are not Cloud Optimized can take 15 s or more.
+      IO_TIMEOUT: ${MAPSERVER_TIMEOUT:-180}
+    volumes:
+      - ./mapserver/mapserver.conf:/etc/mapserver.conf:ro
+      # /ows/<workspace> endpoints (mod_rewrite ships with the image but is off)
+      # and Apache hardening (headers, ServerTokens, TraceEnable).
+      - ./mapserver/mapnest-vhost.conf:/etc/apache2/sites-enabled/000-0-mapnest.conf:ro
+      - ./mapserver/rewrite.load:/etc/apache2/mods-enabled/rewrite.load:ro
+      - ./mapserver/headers.load:/etc/apache2/mods-enabled/headers.load:ro
+      - ./mapfiles:/etc/mapserver:ro
+      # Local raster folder stores: same path as in msapi, read-only.
+      - ${RASTER_DIR:-./rasters}:/rasters:ro
+      # Cloud Optimized copies of non-COG rasters, made by msapi.
+      - ./rastercache:/rastercache:ro
+    # Apache starts as root to bind port 80, then drops to www-data.
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    logging: *logging
+    networks: [gis-net]
+
+  msapi:
+    build: ./msapi
+    image: gis-msapi:dev
+    container_name: msapi
+    restart: unless-stopped
+    ports:
+      # Admin API. Bound to this host only: the web UI reaches it over the
+      # gis-net network. Set MSAPI_BIND=0.0.0.0 only when the UI runs on
+      # another host, and firewall the port to that host.
+      - "${MSAPI_BIND:-127.0.0.1}:${MSAPI_PORT:-8081}:8081"
+    environment:
+      MSAPI_LISTEN: ":8081"
+      MSAPI_API_KEY: ${MSAPI_API_KEY:?set MSAPI_API_KEY in server/.env}
+      MSAPI_ADMIN_USER: ${MSAPI_ADMIN_USER:-admin}
+      MSAPI_ADMIN_PASSWORD: ${MSAPI_ADMIN_PASSWORD:?set MSAPI_ADMIN_PASSWORD in server/.env}
+      MSAPI_SECRET_KEY: ${MSAPI_SECRET_KEY:?set MSAPI_SECRET_KEY in server/.env}
+      MSAPI_SESSION_HOURS: ${MSAPI_SESSION_HOURS:-8}
+      MSAPI_SESSION_IDLE_MINUTES: ${MSAPI_SESSION_IDLE_MINUTES:-30}
+      MSAPI_LOGIN_MAX_ATTEMPTS: ${MSAPI_LOGIN_MAX_ATTEMPTS:-5}
+      MSAPI_LOGIN_LOCKOUT_MINUTES: ${MSAPI_LOGIN_LOCKOUT_MINUTES:-15}
+      MSAPI_TRUSTED_PROXIES: ${MSAPI_TRUSTED_PROXIES:-}
+      MSAPI_PUBLIC_DOCS: ${MSAPI_PUBLIC_DOCS:-off}
+      MSAPI_INSECURE_DEV: ${MSAPI_INSECURE_DEV:-false}
+      MSAPI_DATA_DIR: /data
+      MSAPI_MAPFILE_DIR: /etc/mapserver
+      MSAPI_MAPSERVER_URL: http://mapserver/
+      MSAPI_PUBLIC_URL: ${MSAPI_PUBLIC_URL}
+      MSAPI_RASTER_DIR: /rasters
+      MSAPI_RASTER_CACHE_DIR: /rastercache
+      MSAPI_LOG_LEVEL: ${MSAPI_LOG_LEVEL:-info}
+    volumes:
+      - ./mapfiles:/etc/mapserver
+      - ./data:/data
+      - ${RASTER_DIR:-./rasters}:/rasters:ro
+      - ./rastercache:/rastercache
+    # Least privilege: only the capabilities needed to write the shared
+    # mapfile volume and hand pg_service.conf to MapServer's group.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/msapi", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging: *logging
+    networks: [gis-net]
+
+networks:
+  gis-net:
+    external: true

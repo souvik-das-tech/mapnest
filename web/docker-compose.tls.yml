@@ -1,0 +1,45 @@
+# HTTPS in front of the web UI with Caddy (automatic Let's Encrypt
+# certificates, HTTP -> HTTPS redirect, TLS 1.2+ only).
+#
+#   # in web/.env: MAPNEST_DOMAIN=maps.example.com  MAPNEST_ACME_EMAIL=you@example.com
+#   docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d --build
+#
+# The domain's DNS must point at this host, and ports 80 and 443 must be
+# reachable from the internet for the certificate challenge.
+services:
+  web:
+    # Only Caddy reaches nginx from outside; the plain-HTTP port is local.
+    ports: !override
+      - "127.0.0.1:${WEB_PORT:-3000}:8080"
+    environment:
+      # Caddy runs on the gis-net Docker network: trust its X-Forwarded-For.
+      NGINX_REAL_IP_FROM: ${NGINX_REAL_IP_FROM_TLS:-172.16.0.0/12}
+
+  tls:
+    image: caddy:2.10-alpine
+    container_name: gis-tls
+    restart: unless-stopped
+    depends_on: [web]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      MAPNEST_DOMAIN: ${MAPNEST_DOMAIN:?set MAPNEST_DOMAIN in web/.env}
+      MAPNEST_ACME_EMAIL: ${MAPNEST_ACME_EMAIL:?set MAPNEST_ACME_EMAIL in web/.env}
+    volumes:
+      - ./tls/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    networks: [gis-net]
+
+volumes:
+  caddy_data:
+  caddy_config:

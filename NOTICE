@@ -1,0 +1,17 @@
+MapNest
+Copyright 2026 Souvik Das
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+MapNest is a configuration and administration layer for MapServer. It does
+not include MapServer's source code; at run time it uses these projects,
+each under its own license:
+
+- MapServer (https://mapserver.org), an OSGeo project: MIT-style license.
+  All map rendering, WMS and WFS are done by MapServer.
+- GDAL (https://gdal.org): MIT license. Raster access.
+- PROJ (https://proj.org): MIT license.
+- The camptocamp/mapserver Docker image (https://github.com/camptocamp/docker-mapserver).
+- OpenLayers (https://openlayers.org): BSD 2-Clause license.
+- Go and npm dependencies listed in server/msapi/go.mod and web/package.json,
+  under their respective licenses.

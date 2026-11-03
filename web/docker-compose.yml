@@ -1,0 +1,32 @@
+# Stack 3: PRODUCT. React admin UI + map viewer behind nginx.
+# Start: cp .env.example .env && docker compose up -d --build
+# HTTPS: docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d
+name: gis-web
+
+services:
+  web:
+    build: .
+    image: gis-web:dev
+    container_name: gis-web
+    restart: unless-stopped
+    ports:
+      # WEB_BIND=127.0.0.1 when a TLS proxy on this host is the only way in.
+      - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-3000}:8080"
+    environment:
+      MSAPI_UPSTREAM: ${MSAPI_UPSTREAM:-http://msapi:8081}
+      MAPSERVER_UPSTREAM: ${MAPSERVER_UPSTREAM:-http://mapserver:80}
+      NGINX_REAL_IP_FROM: ${NGINX_REAL_IP_FROM:-127.0.0.1/32}
+    # Hardening: no root (unprivileged image), no capabilities, no privilege
+    # escalation, bounded processes and log size.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    pids_limit: 200
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    networks: [gis-net]
+
+networks:
+  gis-net:
+    external: true

@@ -1,0 +1,20 @@
+# TLS terminator for MapNest (docker-compose.tls.yml). Caddy obtains and
+# renews the certificate and redirects HTTP to HTTPS. Security headers,
+# including HSTS, come from nginx behind it.
+{
+	email {$MAPNEST_ACME_EMAIL}
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+{$MAPNEST_DOMAIN} {
+	encode zstd gzip
+	tls {
+		protocols tls1.2 tls1.3
+	}
+	header -Server
+	reverse_proxy web:8080 {
+		header_down -Server
+	}
+}

@@ -1,0 +1,22 @@
+# Large local test raster (see PLAN.md §10)
+odm_orthophoto.tif
+*.tif.aux.xml
+
+# Local env / runtime data
+.env
+server/data/
+server/rasters/*
+server/rastercache/
+!server/rasters/.gitkeep
+server/mapfiles/services.map*
+server/mapfiles/ws_*.map
+server/mapfiles/secrets/
+server/mapfiles/icons/
+server/mapfiles/fonts/
+server/mapfiles/symbols.sym
+server/mapfiles/.services-*.map
+
+# Build output
+web/node_modules/
+web/dist/
+server/msapi/bin/

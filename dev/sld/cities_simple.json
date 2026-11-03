@@ -1,0 +1,8 @@
+{
+  "target": "vector",
+  "rules": [
+    { "name": "Megacities", "filter": "population >= 10000000", "icon": "capital.png", "size": 24, "label": "name", "font_size": 11, "halo_color": "#ffffff" },
+    { "name": "West Bengal", "filter": "state = 'West Bengal'", "mark": "star", "fill": "#f97316", "stroke": "#7c2d12", "size": 14 },
+    { "name": "Other", "else": true, "mark": "circle", "fill": "#3366cc", "size": 8 }
+  ]
+}

@@ -1,0 +1,409 @@
+openapi: 3.0.3
+info:
+  title: MapNest API (msapi), powered by MapServer
+  version: "1"
+  description: |
+    GeoServer-style REST API for MapServer: stores → layers → styles (SLD) → icons.
+    The SQLite database is the source of truth; every change regenerates,
+    validates and atomically swaps the mapfile. User databases are read-only.
+
+    All endpoints except /health, /auth/login and /auth/logout need the
+    `X-API-Key` header (scripts) or a session token from /auth/login
+    (`Authorization: Bearer`). /docs is public only with MSAPI_PUBLIC_DOCS=on.
+    Errors are `{"error": "...", "details": ["..."]}`.
+servers:
+  - url: /api/v1
+security:
+  - apiKey: []
+  - session: []
+
+components:
+  securitySchemes:
+    apiKey: { type: apiKey, in: header, name: X-API-Key, description: "MSAPI_API_KEY from server/.env" }
+    session: { type: http, scheme: bearer, description: "Token from POST /auth/login (the web UI's session)" }
+  parameters:
+    name: { name: name, in: path, required: true, schema: { type: string } }
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+        details: { type: array, items: { type: string } }
+    Extent:
+      type: object
+      properties: { minx: { type: number }, miny: { type: number }, maxx: { type: number }, maxy: { type: number } }
+    PostGISConnection:
+      type: object
+      required: [host, database, user]
+      properties:
+        host: { type: string }
+        port: { type: integer, default: 5432 }
+        database: { type: string }
+        user: { type: string }
+        password: { type: string, writeOnly: true }
+        schema: { type: string, default: public }
+        sslmode: { type: string, enum: [disable, allow, prefer, require, verify-ca, verify-full], default: prefer }
+    S3Connection:
+      type: object
+      required: [bucket, access_key]
+      properties:
+        bucket: { type: string }
+        region: { type: string, default: us-east-1 }
+        endpoint: { type: string, description: "host[:port]; empty for AWS" }
+        prefix: { type: string }
+        access_key: { type: string }
+        secret_key: { type: string, writeOnly: true }
+        use_https: { type: boolean }
+        virtual_hosting: { type: boolean }
+    LocalConnection:
+      type: object
+      properties:
+        path: { type: string, description: "Folder inside MSAPI_RASTER_DIR (mounted read-only into msapi and MapServer); empty = the whole directory" }
+    StoreInput:
+      type: object
+      required: [name, type, connection]
+      properties:
+        name: { type: string, pattern: "^[A-Za-z][A-Za-z0-9_]{0,62}$" }
+        type: { type: string, enum: [postgis, s3, local] }
+        connection:
+          oneOf:
+            - $ref: "#/components/schemas/PostGISConnection"
+            - $ref: "#/components/schemas/S3Connection"
+            - $ref: "#/components/schemas/LocalConnection"
+    Store:
+      type: object
+      properties:
+        name: { type: string }
+        type: { type: string }
+        connection: { type: object, description: "without secrets" }
+        has_secret: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    TestResult:
+      type: object
+      properties:
+        ok: { type: boolean }
+        latency_ms: { type: integer }
+        error: { type: string }
+        info: { type: object }
+    LayerInput:
+      type: object
+      required: [name, store]
+      properties:
+        name: { type: string }
+        title: { type: string }
+        abstract: { type: string }
+        store: { type: string }
+        schema: { type: string, description: PostGIS }
+        table: { type: string, description: PostGIS }
+        geom_column: { type: string, description: "PostGIS; needed when a table has several" }
+        pk: { type: string, description: "PostGIS; unique column for views / tables without a primary key" }
+        layer_type: { type: string, enum: [POINT, LINE, POLYGON], description: "PostGIS; for generic GEOMETRY columns" }
+        srid: { type: integer, description: "PostGIS; declares the CRS of a geometry column without SRID (like GeoServer's Declared SRS)" }
+        path: { type: string, description: "S3: object key of a COG. Local: file path relative to the store folder" }
+        enabled: { type: boolean, default: true }
+        wfs_enabled: { type: boolean, default: false }
+        min_scale: { type: number }
+        max_scale: { type: number }
+    Layer:
+      type: object
+      properties:
+        name: { type: string }
+        title: { type: string }
+        abstract: { type: string }
+        store: { type: string }
+        kind: { type: string, enum: [vector, raster] }
+        source: { type: object }
+        extent: { $ref: "#/components/schemas/Extent" }
+        enabled: { type: boolean }
+        wfs_enabled: { type: boolean }
+        min_scale: { type: number, nullable: true }
+        max_scale: { type: number, nullable: true }
+        styles: { type: array, items: { type: string }, description: "assigned styles, default first" }
+        wms_url: { type: string }
+        warnings: { type: array, items: { type: string } }
+    Style:
+      type: object
+      properties:
+        name: { type: string }
+        format: { type: string, enum: [sld, json] }
+        target: { type: string, enum: [vector, raster] }
+        warnings: { type: array, items: { type: string } }
+        used_by: { type: array, items: { type: string } }
+    Icon:
+      type: object
+      properties:
+        name: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+        symbol: { type: string }
+        used_by: { type: array, items: { type: string } }
+
+paths:
+  /health:
+    get:
+      summary: API, SQLite and MapServer status (store status only with a valid key)
+      security: []
+      parameters:
+        - { name: stores, in: query, schema: { type: string, enum: ["false"] } }
+      responses:
+        "200": { description: All checks pass }
+        "503": { description: Degraded (same body) }
+  /docs:
+    get:
+      summary: This document (needs sign-in unless MSAPI_PUBLIC_DOCS=on)
+      responses: { "200": { description: OpenAPI YAML }, "401": { description: Not signed in } }
+
+  /auth/login:
+    post:
+      summary: 'Admin UI sign-in: {"username": "…", "password": "…"} → session token for "Authorization: Bearer"'
+      security: []
+      responses:
+        "200": { description: '{"token", "username", "expires_at", "idle_timeout_seconds"}' }
+        "401": { description: Wrong username or password }
+        "429": { description: Too many failed sign-ins for this username or IP; see Retry-After }
+  /auth/logout:
+    post:
+      summary: End the caller's session (always 204)
+      security: []
+      responses: { "204": { description: Signed out } }
+  /auth/session:
+    get:
+      summary: Who is calling (session or API key) and when the session ends
+      responses: { "200": { description: OK }, "401": { description: Not signed in } }
+  /auth/sessions:
+    delete:
+      summary: Sign out every admin UI session ("sign out everywhere")
+      responses: { "200": { description: '{"revoked": n}' } }
+
+  /workspaces:
+    get: { summary: "Workspaces with store/layer counts and their WMS/WFS endpoint (ows_url)", responses: { "200": { description: OK } } }
+    post:
+      summary: 'Create a workspace: {"name": "city", "title": "…", "description": "…"}. Served at /ows/<name>.'
+      responses: { "201": { description: Created }, "409": { description: Name taken }, "422": { description: Invalid name } }
+  /workspaces/{name}:
+    parameters: [{ $ref: "#/components/parameters/name" }]
+    get: { summary: Get a workspace, responses: { "200": { description: OK } } }
+    put: { summary: Change title or description (names are fixed), responses: { "200": { description: OK } } }
+    delete:
+      summary: Delete an empty workspace ("default" cannot be deleted)
+      responses: { "204": { description: Deleted }, "409": { description: Still has stores, or is the default } }
+  /stores:
+    get:
+      summary: List stores
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Store" } } } } }
+    post:
+      summary: Create a store (the connection is tested first)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/StoreInput" } } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Store" } } } }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /stores/test:
+    post:
+      summary: Test a connection without saving
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/StoreInput" } } } }
+      responses:
+        "200": { description: Result, content: { application/json: { schema: { $ref: "#/components/schemas/TestResult" } } } }
+  /stores/{name}:
+    parameters: [{ $ref: "#/components/parameters/name" }]
+    get:
+      summary: Get a store (no secrets)
+      responses: { "200": { description: OK }, "404": { $ref: "#/components/responses/Error" } }
+    put:
+      summary: Update a store; omit password/secret_key to keep it. Re-tests the connection.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/StoreInput" } } } }
+      responses: { "200": { description: OK }, "422": { $ref: "#/components/responses/Error" } }
+    delete:
+      summary: Delete a store
+      responses:
+        "204": { description: Deleted }
+        "409": { description: Used by layers (details lists them) }
+  /stores/{name}/workspace:
+    parameters: [{ $ref: "#/components/parameters/name" }]
+    put:
+      summary: 'Move a store and its layers to another workspace: {"workspace": "<name>"}'
+      responses: { "200": { description: OK }, "422": { description: No such workspace } }
+  /stores/{name}/test:
+    parameters: [{ $ref: "#/components/parameters/name" }]
+    post:
+      summary: Test a saved store
+      responses: { "200": { description: Result, content: { application/json: { schema: { $ref: "#/components/schemas/TestResult" } } } } }
+  /stores/{name}/resources:
+    parameters: [{ $ref: "#/components/parameters/name" }]
+    get:
+      summary: PostGIS geometry tables, or .tif files in an S3 bucket or local folder, available to publish
+      responses: { "200": { description: OK }, "502": { $ref: "#/components/responses/Error" } }
+
+  /layers:
+    get:
+      summary: List layers
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Layer" } } } } } }
+    post:
+      summary: Publish a layer (metadata is detected from the source)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/LayerInput" } } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Layer" } } } }
+        "422": { description: Source problem, or MapServer rejected the result (live mapfile unchanged) }
+  /layers/inspect:
+    post:
+      summary: Detect what publishing would use, without saving
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/LayerInput" } } } }
+      responses: { "200": { description: "{kind, source, extent, warnings}" } }
+  /layers/srid-candidates:
+    post:
+      summary: Suggest coordinate systems for a geometry column without SRID (same body as /layers/inspect)
+      responses: { "200": { description: Candidate EPSG codes, best first } }
+  /layers/{name}:
+    parameters: [{ $ref: "#/components/parameters/name" }]
+    get: { summary: Get a layer, responses: { "200": { description: OK } } }
+    put:
+      summary: Update title, abstract, enabled, wfs_enabled, min_scale, max_scale (null clears a scale)
+      requestBody: { content: { application/json: { schema: { type: object } } } }
+      responses: { "200": { description: OK } }
+    delete: { summary: Delete a layer, responses: { "204": { description: Deleted } } }
+  /layers/{name}/refresh:
+    parameters: [{ $ref: "#/components/parameters/name" }]
+    post: { summary: Re-read extent and metadata from the source, responses: { "200": { description: OK } } }
+  /layers/{name}/cache:
+    parameters: [{ $ref: "#/components/parameters/name" }]
+    post: { summary: "Rasters that are not Cloud Optimized: build (or retry) the fast COG copy", responses: { "202": { description: Started } } }
+  /layers/{name}/attributes:
+    parameters: [{ $ref: "#/components/parameters/name" }]
+    get: { summary: "Attribute columns of a vector layer (name, type, numeric)", responses: { "200": { description: OK } } }
+  /layers/{name}/attributes/{attr}:
+    parameters:
+      - { $ref: "#/components/parameters/name" }
+      - { name: attr, in: path, required: true, schema: { type: string } }
+      - { name: limit, in: query, schema: { type: integer, default: 100, maximum: 500 }, description: "most frequent values to return" }
+      - { name: classes, in: query, schema: { type: integer, minimum: 2, maximum: 20 }, description: "numeric columns: return classes+1 quantile breaks" }
+    get: { summary: "Value counts, min/max and quantile breaks of one column, for classified styles", responses: { "200": { description: OK } } }
+  /layers/{name}/preview:
+    parameters:
+      - { $ref: "#/components/parameters/name" }
+      - { name: bbox, in: query, schema: { type: string }, description: "minx,miny,maxx,maxy in srs (default: layer extent)" }
+      - { name: srs, in: query, schema: { type: string }, description: "default: native EPSG" }
+      - { name: width, in: query, schema: { type: integer, default: 512 } }
+      - { name: height, in: query, schema: { type: integer } }
+      - { name: style, in: query, schema: { type: string } }
+    get:
+      summary: PNG of the layer as published
+      responses: { "200": { description: PNG, content: { image/png: {} } } }
+    post:
+      summary: PNG of the layer with an unsaved style from the body (SLD or JSON)
+      requestBody:
+        content:
+          application/vnd.ogc.sld+xml: { schema: { type: string } }
+          application/json: { schema: { type: object } }
+      responses: { "200": { description: PNG, content: { image/png: {} } } }
+  /layers/{name}/styles:
+    parameters: [{ $ref: "#/components/parameters/name" }]
+    get: { summary: "Assigned styles {default, alternates}", responses: { "200": { description: OK } } }
+    put:
+      summary: Assign styles; an empty default returns to the built-in style
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                default: { type: string }
+                alternates: { type: array, items: { type: string } }
+      responses: { "200": { description: OK }, "422": { $ref: "#/components/responses/Error" } }
+
+  /styles:
+    get:
+      summary: List styles
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Style" } } } } } }
+    post:
+      summary: Upload a style (SLD 1.0 / SE 1.1 or the JSON shortcut); converted once to MapServer classes
+      parameters: [{ name: name, in: query, required: true, schema: { type: string } }]
+      requestBody:
+        content:
+          application/vnd.ogc.sld+xml: { schema: { type: string } }
+          application/json: { schema: { type: object } }
+      responses:
+        "201": { description: Created; unsupported SLD parts are listed in warnings }
+        "409": { description: Name taken }
+        "422": { description: Invalid, unknown icons, or renders nothing }
+  /styles/validate:
+    post:
+      summary: Compile without saving; ?layer= renders for that layer's geometry type
+      parameters:
+        - { name: layer, in: query, schema: { type: string } }
+        - { name: name, in: query, schema: { type: string } }
+      responses: { "200": { description: "{format, target, warnings, compiled, used_icons}" } }
+  /styles/{name}:
+    parameters: [{ $ref: "#/components/parameters/name" }]
+    get:
+      summary: The original SLD/JSON, unchanged (?meta=1 for the JSON description)
+      responses: { "200": { description: OK } }
+    put:
+      summary: Replace the style body
+      responses: { "200": { description: OK } }
+    delete:
+      summary: Delete a style. Layers using it fall back to their next style or the built-in default.
+      responses: { "204": { description: Deleted } }
+  /styles/{name}/compiled:
+    parameters: [{ $ref: "#/components/parameters/name" }]
+    get: { summary: Generated mapfile CLASS blocks, responses: { "200": { description: text/plain } } }
+  /styles/{name}/legend:
+    parameters:
+      - { $ref: "#/components/parameters/name" }
+      - { name: layer, in: query, schema: { type: string } }
+    get: { summary: Legend PNG via GetLegendGraphic, responses: { "200": { description: PNG } } }
+
+  /icons:
+    get:
+      summary: List icons
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Icon" } } } } } }
+    post:
+      summary: Upload a PNG icon (max 2 MB, 512×512 px); referenced from SLD by file name
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+                name: { type: string }
+      responses: { "201": { description: Created }, "409": { description: Name taken } }
+  /icons/{name}:
+    parameters: [{ $ref: "#/components/parameters/name" }]
+    get: { summary: The image, responses: { "200": { description: PNG } } }
+    delete: { summary: "Delete an icon. Styles using it are taken off their layers, which fall back to the default style", responses: { "204": { description: Deleted } } }
+
+  /mapfile:
+    get: { summary: Current generated mapfile (secrets masked), responses: { "200": { description: text/plain } } }
+  /mapfile/versions:
+    get: { summary: Last 50 generated mapfiles (newest first), responses: { "200": { description: OK } } }
+  /mapfile/versions/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+    get: { summary: One version with content (secrets masked), responses: { "200": { description: OK } } }
+  /mapfile/rollback/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+    post:
+      summary: Put an old mapfile live (emergency switch; the next change regenerates from the database)
+      responses: { "200": { description: OK } }
+  /mapfile/rebuild:
+    post: { summary: Regenerate everything from the database, responses: { "200": { description: OK } } }
+
+  /system/backup:
+    get:
+      summary: .tar.gz with a database snapshot and icons (keep MSAPI_SECRET_KEY separately)
+      responses: { "200": { description: Archive, content: { application/gzip: {} } } }
+  /system/restore:
+    post:
+      summary: Restore from a backup archive (raw body or multipart "file"), then rebuild
+      requestBody:
+        content:
+          application/gzip: { schema: { type: string, format: binary } }
+          multipart/form-data: { schema: { type: object, properties: { file: { type: string, format: binary } } } }
+      responses: { "200": { description: OK }, "422": { $ref: "#/components/responses/Error" } }

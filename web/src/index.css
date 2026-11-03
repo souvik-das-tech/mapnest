@@ -1,0 +1,133 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "ol/ol.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Design tokens (shadcn/ui style): neutral zinc greys, one indigo accent. */
+:root {
+  --background: oklch(0.985 0.001 286);
+  --foreground: oklch(0.21 0.006 286);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --muted: oklch(0.965 0.002 286);
+  --muted-foreground: oklch(0.53 0.012 286);
+  --border: oklch(0.92 0.004 286);
+  --input: oklch(0.89 0.005 286);
+  --primary: oklch(0.55 0.21 277);
+  --primary-foreground: oklch(0.99 0 0);
+  --accent: oklch(0.955 0.018 277);
+  --accent-foreground: oklch(0.42 0.17 277);
+  --destructive: oklch(0.58 0.22 27);
+  --destructive-foreground: oklch(0.99 0 0);
+  --success: oklch(0.6 0.15 155);
+  --warning: oklch(0.76 0.15 75);
+  --ring: oklch(0.55 0.21 277 / 0.35);
+  --sidebar: oklch(0.975 0.002 286);
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: oklch(0.145 0.004 286);
+  --foreground: oklch(0.94 0.003 286);
+  --card: oklch(0.175 0.005 286);
+  --card-foreground: var(--foreground);
+  --muted: oklch(0.225 0.006 286);
+  --muted-foreground: oklch(0.68 0.012 286);
+  --border: oklch(1 0 0 / 0.08);
+  --input: oklch(1 0 0 / 0.13);
+  --primary: oklch(0.65 0.19 277);
+  --primary-foreground: oklch(0.99 0 0);
+  --accent: oklch(0.65 0.19 277 / 0.14);
+  --accent-foreground: oklch(0.8 0.11 277);
+  --destructive: oklch(0.65 0.2 27);
+  --destructive-foreground: oklch(0.99 0 0);
+  --success: oklch(0.7 0.15 155);
+  --warning: oklch(0.78 0.14 75);
+  --ring: oklch(0.65 0.19 277 / 0.45);
+  --sidebar: oklch(0.16 0.004 286);
+}
+
+@theme inline {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+@layer base {
+  * { @apply border-border; }
+  html, body, #root { height: 100%; }
+  body { @apply bg-background text-[13.5px] text-foreground antialiased; font-feature-settings: "cv11", "ss01"; }
+  ::selection { background: var(--ring); }
+  * { scrollbar-width: thin; scrollbar-color: var(--input) transparent; }
+  /* Grid items may shrink below their content, so long text truncates
+     instead of pushing a card out of its column. */
+  .grid > * { min-width: 0; }
+}
+
+/* OpenLayers controls follow the theme. */
+.ol-viewport .ol-control {
+  background: transparent;
+  padding: 0;
+  border-radius: 6px;
+}
+.ol-viewport .ol-control button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin: 0;
+  border: 1px solid var(--input);
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.15);
+}
+.ol-viewport .ol-control button:hover,
+.ol-viewport .ol-control button:focus-visible {
+  background: var(--muted);
+  outline: none;
+}
+.ol-viewport .ol-zoom {
+  top: 12px;
+  left: 12px;
+  right: auto;
+  z-index: 5;
+}
+.ol-viewport .ol-zoom .ol-zoom-in { border-radius: 6px 6px 0 0; border-bottom: 0; }
+.ol-viewport .ol-zoom .ol-zoom-out { border-radius: 0 0 6px 6px; }
+.ol-viewport .ol-scale-line {
+  left: 12px;
+  bottom: 12px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+}
+.ol-viewport .ol-scale-line-inner { border-color: var(--foreground); color: var(--foreground); font-size: 10px; }
+.ol-viewport .ol-attribution { right: 12px; bottom: 12px; font-size: 11px; }
+.ol-viewport .ol-attribution ul { color: var(--muted-foreground); text-shadow: none; }
+.ol-viewport .ol-attribution button { width: 24px; height: 24px; font-size: 14px; }
