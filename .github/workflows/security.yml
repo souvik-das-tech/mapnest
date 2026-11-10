@@ -41,7 +41,7 @@ jobs:
           go-version: "1.26"
           check-latest: true
           cache-dependency-path: server/msapi/go.sum
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           queries: security-extended
@@ -49,4 +49,4 @@ jobs:
         if: matrix.language == 'go'
         working-directory: server/msapi
         run: go build ./...
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
